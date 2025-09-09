@@ -1,14 +1,16 @@
 // index.js
-const { Client, GatewayIntentBits, AttachmentBuilder } = require("discord.js");
-const express = require("express");
-const fetch = require("node-fetch");
+import express from "express";
+import fetch from "node-fetch";
+import {
+  Client,
+  GatewayIntentBits,
+  AttachmentBuilder
+} from "discord.js";
 
 const app = express();
-const PORT = process.env.PORT || 3000; // Render assigns a port, fallback 3000
+const PORT = process.env.PORT || 3000;
 
-// Root endpoint so UptimeRobot/Render can ping it
 app.get("/", (req, res) => res.send("✅ Bot is running!"));
-
 app.listen(PORT, () => console.log(`🌐 Web server running on port ${PORT}`));
 
 const client = new Client({
@@ -20,7 +22,7 @@ const client = new Client({
 });
 
 const HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2";
-const HF_API_KEY = process.env.HF_API_KEY; // put this in Render "Environment Variables"
+const HF_API_KEY = process.env.HF_API_KEY;
 
 client.once("ready", () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
@@ -34,6 +36,39 @@ client.on("messageCreate", async (message) => {
     if (!prompt) {
       return message.reply("❌ Please provide a prompt, e.g., `generate a cat`");
     }
+
+    await message.channel.send(`🎨 Generating image for: **${prompt}** ...`);
+
+    try {
+      const response = await fetch(HF_API_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${HF_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ inputs: prompt }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("HF API Error:", errorText);
+        return message.reply("⚠️ Failed to generate image. Try again later.");
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const attachment = new AttachmentBuilder(buffer, { name: "image.png" });
+      await message.channel.send({ files: [attachment] });
+
+    } catch (err) {
+      console.error("Bot error:", err);
+      message.reply("⚠️ Error generating the image.");
+    }
+  }
+});
+
+client.login(process.env.BOT_TOKEN);
 
     await message.channel.send(`🎨 Generating image for: **${prompt}** ...`);
 
