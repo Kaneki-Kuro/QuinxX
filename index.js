@@ -1,4 +1,9 @@
-import { Client, GatewayIntentBits, AttachmentBuilder } from "discord.js";
+import { 
+  Client, 
+  GatewayIntentBits, 
+  AttachmentBuilder, 
+  EmbedBuilder 
+} from "discord.js";
 import express from "express";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
@@ -8,7 +13,7 @@ dotenv.config();
 // --- CONFIG ---
 const DISCORD_TOKEN = process.env.BOT_TOKEN;
 const HF_API_KEY = process.env.HF_API_KEY;
-const HF_MODEL = "runwayml/stable-diffusion-v1-5"; // You can change this
+const HF_MODEL = "runwayml/stable-diffusion-v1-5"; // Hugging Face model
 
 // --- DISCORD CLIENT ---
 const client = new Client({
@@ -55,22 +60,49 @@ client.on("messageCreate", async (message) => {
 
   const prompt = message.content.replace("!gen", "").trim();
   if (!prompt) {
-    return message.reply("⚠️ Please provide a prompt. Example: `!gen cat and dog`");
+    return message.reply("⚠️ Please provide a prompt. Example: `!gen cat`");
   }
 
-  await message.channel.send(`🎨 Generating: \`${prompt}\` ...`);
+  // Send temporary "Thinking..." embed
+  const embed = new EmbedBuilder()
+    .setTitle("🎨 Generating Image...")
+    .setDescription(`Prompt: \`${prompt}\`\nThis may take 10–15 seconds ⏳`)
+    .setColor("Yellow");
 
+  const thinkingMsg = await message.channel.send({ embeds: [embed] });
+
+  // Generate the image
   const imageBuffer = await generateImage(prompt);
+
   if (!imageBuffer) {
-    return message.reply("❌ Failed to generate image from Hugging Face API.");
+    return thinkingMsg.edit({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("❌ Failed to generate image")
+          .setDescription("Hugging Face API returned an error. Try again later.")
+          .setColor("Red"),
+      ],
+    });
   }
 
   try {
     const attachment = new AttachmentBuilder(imageBuffer, { name: "result.png" });
-    await message.channel.send({ files: [attachment] });
+
+    await thinkingMsg.edit({
+      content: `✨ <@${message.author.id}> here is your image for: **${prompt}**`,
+      embeds: [],
+      files: [attachment],
+    });
   } catch (err) {
     console.error("⚠️ Failed to send image:", err);
-    await message.reply("❌ Image generated but failed to send. Check logs.");
+    await thinkingMsg.edit({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("⚠️ Image Error")
+          .setDescription("Image generated but failed to send. Check logs.")
+          .setColor("Orange"),
+      ],
+    });
   }
 });
 
