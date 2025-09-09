@@ -56,11 +56,13 @@ client.once("ready", () => {
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
-  if (!message.content.startsWith("!gen")) return;
 
-  const prompt = message.content.replace("!gen", "").trim();
+  // Match messages like: "generate a cat with hat"
+  if (!message.content.toLowerCase().startsWith("generate")) return;
+
+  const prompt = message.content.slice(8).trim(); // remove "generate"
   if (!prompt) {
-    return message.reply("⚠️ Please provide a prompt. Example: `!gen cat`");
+    return message.reply("⚠️ Please describe what to generate. Example: `Generate a cat with hat`");
   }
 
   // Send temporary "Thinking..." embed
