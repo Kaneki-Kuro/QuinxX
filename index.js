@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const OpenAI = require('openai');
 require('dotenv').config();
 const express = require('express');
+const fetch = require('node-fetch');
 
 // ===== Express server for Render Web Service =====
 const app = express();
@@ -18,16 +18,32 @@ const client = new Client({
     ]
 });
 
-// OpenAI initialization
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
-
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
 });
 
-// ✅ Make sure this function is async
+// Function to generate image using Hugging Face
+async function generateImage(prompt) {
+    const response = await fetch(
+        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2",
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${process.env.HF_API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ inputs: prompt })
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(`HF API error: ${response.statusText}`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    return Buffer.from(buffer);
+}
+
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
     if (message.channel.id !== process.env.ALLOWED_CHANNEL_ID) return;
@@ -36,41 +52,35 @@ client.on('messageCreate', async (message) => {
     const prompt = message.content.slice(9).trim();
     if (!prompt) return message.reply('Please provide something to generate!');
 
-    // Build "Generating" embed
-    const generatingEmbed = new EmbedBuilder();
-    generatingEmbed.setColor('Yellow');
-    generatingEmbed.setTitle(`Generating image of '${prompt}'`);
-    generatingEmbed.setDescription("It will take 10-15 seconds...");
-    generatingEmbed.setFooter({ text: "If it has any issues, create a ticket." });
+    const generatingEmbed = new EmbedBuilder()
+        .setColor('Yellow')
+        .setTitle(`Generating image of '${prompt}'`)
+        .setDescription("It will take 10-15 seconds...")
+        .setFooter({ text: "If it has any issues, create a ticket." });
 
     try {
-        // ✅ This await is inside async function
         const sentMessage = await message.channel.send({ embeds: [generatingEmbed] });
 
-        const response = await openai.images.generate({
-            model: "gpt-image-1",
-            prompt,
-            size: "1024x1024" // ✅ Valid size
+        const imageBuffer = await generateImage(prompt);
+
+        const finishedEmbed = new EmbedBuilder()
+            .setColor('Green')
+            .setTitle(`Here is your image of '${prompt}'!`)
+            .setFooter({ text: "If it has any issues, create a ticket." });
+
+        await sentMessage.edit({
+            embeds: [finishedEmbed],
+            files: [{ attachment: imageBuffer, name: "image.png" }]
         });
-
-        const imageUrl = response.data[0].url;
-
-        const finishedEmbed = new EmbedBuilder();
-        finishedEmbed.setColor('Green');
-        finishedEmbed.setTitle(`Here is your image of '${prompt}'!`);
-        finishedEmbed.setImage(imageUrl);
-        finishedEmbed.setFooter({ text: "If it has any issues, create a ticket." });
-
-        await sentMessage.edit({ embeds: [finishedEmbed] });
 
     } catch (error) {
         console.error(error);
 
-        const errorEmbed = new EmbedBuilder();
-        errorEmbed.setColor('Red');
-        errorEmbed.setTitle('Failed to generate image.');
-        errorEmbed.setDescription('Please try again later.');
-        errorEmbed.setFooter({ text: "If it has any issues, create a ticket." });
+        const errorEmbed = new EmbedBuilder()
+            .setColor('Red')
+            .setTitle('Failed to generate image.')
+            .setDescription(error.message || 'Please try again later.')
+            .setFooter({ text: "If it has any issues, create a ticket." });
 
         message.channel.send({ embeds: [errorEmbed] });
     }
