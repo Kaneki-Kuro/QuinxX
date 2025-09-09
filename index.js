@@ -1,105 +1,70 @@
-// index.js
+import { Client, GatewayIntentBits, AttachmentBuilder } from "discord.js";
 import express from "express";
 import fetch from "node-fetch";
-import {
-  Client,
-  GatewayIntentBits,
-  AttachmentBuilder
-} from "discord.js";
+import dotenv from "dotenv";
+dotenv.config();
 
+// ==== Discord Client ====
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+});
+
+// ==== Web Server for Render ====
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => res.send("✅ Bot is running!"));
-app.listen(PORT, () => console.log(`🌐 Web server running on port ${PORT}`));
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+app.get("/", (req, res) => {
+  res.send("Bot is running!");
 });
 
-const HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2";
-const HF_API_KEY = process.env.HF_API_KEY;
+app.listen(PORT, () => {
+  console.log(`Web server running on port ${PORT}`);
+});
 
+// ==== Bot Ready ====
 client.once("ready", () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
+// ==== Image Generation ====
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  if (message.content.toLowerCase().startsWith("generate")) {
-    const prompt = message.content.slice(8).trim();
+  // Command format: generate <prompt>
+  if (message.content.toLowerCase().startsWith("generate ")) {
+    const prompt = message.content.slice(9).trim();
     if (!prompt) {
-      return message.reply("❌ Please provide a prompt, e.g., `generate a cat`");
+      return message.reply("❌ Please provide something to generate (e.g., `generate a cat`).");
     }
 
-    await message.channel.send(`🎨 Generating image for: **${prompt}** ...`);
-
     try {
-      const response = await fetch(HF_API_URL, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${HF_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inputs: prompt }),
-      });
+      await message.channel.send(`🎨 Generating: **${prompt}** ...`);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("HF API Error:", errorText);
-        return message.reply("⚠️ Failed to generate image. Try again later.");
+      // Use Lexica API for free image generation
+      const response = await fetch(`https://lexica.art/api/v1/search?q=${encodeURIComponent(prompt)}`);
+      const data = await response.json();
+
+      if (!data.images || data.images.length === 0) {
+        return message.reply("⚠️ No images found. Try a different prompt.");
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      // Pick first image
+      const imageUrl = data.images[0].src;
 
-      const attachment = new AttachmentBuilder(buffer, { name: "image.png" });
-      await message.channel.send({ files: [attachment] });
+      // Fetch image as buffer
+      const imgResponse = await fetch(imageUrl);
+      const buffer = Buffer.from(await imgResponse.arrayBuffer());
+
+      // Send as real Discord image
+      const attachment = new AttachmentBuilder(buffer, { name: "generated.png" });
+      await message.channel.send({ content: `🖼️ Here’s your image for: **${prompt}**`, files: [attachment] });
 
     } catch (err) {
-      console.error("Bot error:", err);
-      message.reply("⚠️ Error generating the image.");
+      console.error(err);
+      message.reply("❌ Failed to generate image. Please try again.");
     }
   }
 });
 
-client.login(process.env.BOT_TOKEN);
-
-    await message.channel.send(`🎨 Generating image for: **${prompt}** ...`);
-
-    try {
-      const response = await fetch(HF_API_URL, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${HF_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inputs: prompt }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("HF API Error:", errorText);
-        return message.reply("⚠️ Failed to generate image. Try again later.");
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
-      // Send as PNG so Discord renders it properly
-      const attachment = new AttachmentBuilder(buffer, { name: "image.png" });
-      await message.channel.send({ files: [attachment] });
-
-    } catch (err) {
-      console.error("Bot error:", err);
-      message.reply("⚠️ Error generating the image.");
-    }
-  }
-});
-
-client.login(process.env.BOT_TOKEN);
+// ==== Login Bot ====
+client.login(process.env.TOKEN);
