@@ -1,94 +1,70 @@
-import { Client, GatewayIntentBits } from "discord.js";
-import fetch from "node-fetch";
-import dotenv from "dotenv";
-import express from "express";
+// index.js
+const { Client, GatewayIntentBits, AttachmentBuilder } = require("discord.js");
+const express = require("express");
+const fetch = require("node-fetch");
 
-dotenv.config();
+const app = express();
+const PORT = process.env.PORT || 3000; // Render assigns a port, fallback 3000
 
-// === Discord Client ===
+// Root endpoint so UptimeRobot/Render can ping it
+app.get("/", (req, res) => res.send("✅ Bot is running!"));
+
+app.listen(PORT, () => console.log(`🌐 Web server running on port ${PORT}`));
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
-const CHANNEL_ID = process.env.CHANNEL_ID;
+const HF_API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2";
+const HF_API_KEY = process.env.HF_API_KEY; // put this in Render "Environment Variables"
 
-// === Hugging Face Image Generator ===
-async function generateImage(prompt) {
-  try {
-    const response = await fetch(
-      "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2",
-      {
+client.once("ready", () => {
+  console.log(`🤖 Logged in as ${client.user.tag}`);
+});
+
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+
+  if (message.content.toLowerCase().startsWith("generate")) {
+    const prompt = message.content.slice(8).trim();
+    if (!prompt) {
+      return message.reply("❌ Please provide a prompt, e.g., `generate a cat`");
+    }
+
+    await message.channel.send(`🎨 Generating image for: **${prompt}** ...`);
+
+    try {
+      const response = await fetch(HF_API_URL, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${process.env.HF_TOKEN}`,
-          "Content-Type": "application/json"
+          "Authorization": `Bearer ${HF_API_KEY}`,
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ inputs: prompt })
+        body: JSON.stringify({ inputs: prompt }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("HF API Error:", errorText);
+        return message.reply("⚠️ Failed to generate image. Try again later.");
       }
-    );
 
-    const contentType = response.headers.get("content-type");
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
 
-    // If Hugging Face sends back JSON, it's an error message
-    if (contentType.includes("application/json")) {
-      const err = await response.json();
-      console.error("Hugging Face error:", err);
-      return { error: err.error || "Unknown error from API" };
+      // Send as PNG so Discord renders it properly
+      const attachment = new AttachmentBuilder(buffer, { name: "image.png" });
+      await message.channel.send({ files: [attachment] });
+
+    } catch (err) {
+      console.error("Bot error:", err);
+      message.reply("⚠️ Error generating the image.");
     }
-
-    // Otherwise it's an image
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    return { buffer };
-  } catch (err) {
-    console.error("Fetch failed:", err);
-    return { error: "Failed to contact Hugging Face API" };
-  }
-}
-
-// === Discord Bot Events ===
-client.on("ready", () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-});
-
-client.on("messageCreate", async (msg) => {
-  if (msg.author.bot) return;
-  if (msg.channel.id !== CHANNEL_ID) return;
-
-  if (msg.content.toLowerCase().startsWith("generate")) {
-    const prompt = msg.content.replace(/generate/i, "").trim();
-    if (!prompt) return msg.reply("❌ Please provide a prompt after `Generate`.");
-
-    await msg.channel.send(`🎨 Generating image for: *${prompt}* ...`);
-
-    const result = await generateImage(prompt);
-
-    if (result.error) {
-      return msg.channel.send(`⚠️ Failed to generate image: ${result.error}`);
-    }
-
-    await msg.channel.send({
-      files: [{ attachment: result.buffer, name: "image.png" }]
-    });
   }
 });
 
-// === Express Web Server (for Render + UptimeRobot) ===
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get("/", (req, res) => {
-  res.send("🤖 Discord AI Image Bot is running!");
-});
-
-app.listen(PORT, () => {
-  console.log(`🌍 Web server running on port ${PORT}`);
-});
-
-// === Start Bot ===
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.BOT_TOKEN);
