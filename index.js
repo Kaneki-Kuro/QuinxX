@@ -21,7 +21,7 @@ client.once('ready', () => console.log(`Logged in as ${client.user.tag}`));
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    // Only allow specific channel
+    // Only respond in allowed channel
     if (message.channel.id !== process.env.ALLOWED_CHANNEL_ID) return;
 
     // Check for "generate " command
@@ -37,11 +37,16 @@ client.on('messageCreate', async (message) => {
         .setDescription("It will take 10-15 seconds...")
         .setFooter({ text: "If it has any issues, create a ticket." });
 
-    const sentMessage = await message.channel.send({ embeds: [generatingEmbed] });
-
     try {
-        // Generate image dynamically
-        const response = await openai.createImage({ prompt, n: 1, size: '512x512' });
+        const sentMessage = await message.channel.send({ embeds: [generatingEmbed] });
+
+        // Generate image from OpenAI
+        const response = await openai.createImage({
+            prompt,
+            n: 1,
+            size: '512x512'
+        });
+
         const imageUrl = response.data.data[0].url;
 
         // Finished embed
@@ -55,41 +60,14 @@ client.on('messageCreate', async (message) => {
 
     } catch (error) {
         console.error(error);
-        sentMessage.edit({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor('Red')
-                    .setTitle('Failed to generate image.')
-                    .setDescription('Please try again later.')
-                    .setFooter({ text: "If it has any issues, create a ticket." })
-            ]
-        });
-    }
-});
-
-client.login(process.env.DISCORD_TOKEN);
-        const imageUrl = response.data.data[0].url;
-
-        // Edit embed with the image
-        const finishedEmbed = new EmbedBuilder()
-            .setColor('Green')
-            .setTitle(`Here is your image of '${prompt}'!`)
-            .setImage(imageUrl)
+        const errorEmbed = new EmbedBuilder()
+            .setColor('Red')
+            .setTitle('Failed to generate image.')
+            .setDescription('Please try again later.')
             .setFooter({ text: "If it has any issues, create a ticket." });
 
-        await sentMessage.edit({ embeds: [finishedEmbed] });
-
-    } catch (error) {
-        console.error(error);
-        sentMessage.edit({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor('Red')
-                    .setTitle('Failed to generate image.')
-                    .setDescription('Please try again later.')
-                    .setFooter({ text: "If it has any issues, create a ticket." })
-            ]
-        });
+        // Try to edit the original message if possible
+        message.channel.send({ embeds: [errorEmbed] });
     }
 });
 
