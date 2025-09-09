@@ -1,124 +1,68 @@
-import { 
-  Client, 
-  GatewayIntentBits, 
-  AttachmentBuilder, 
-  EmbedBuilder 
-} from "discord.js";
-import express from "express";
-import fetch from "node-fetch";
-import dotenv from "dotenv";
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Configuration, OpenAIApi } = require('openai');
+require('dotenv').config();
 
-dotenv.config();
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-// --- CONFIG ---
-const DISCORD_TOKEN = process.env.BOT_TOKEN;
-const HF_API_KEY = process.env.HF_API_KEY;
-const HF_MODEL = "runwayml/stable-diffusion-v1-5"; // Hugging Face model
+const openai = new OpenAIApi(new Configuration({
+    apiKey: process.env.OPENAI_API_KEY
+}));
 
-// --- DISCORD CLIENT ---
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}`);
 });
 
-// --- IMAGE GENERATOR FUNCTION ---
-async function generateImage(prompt) {
-  try {
-    const response = await fetch(
-      `https://api-inference.huggingface.co/models/${HF_MODEL}`,
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${HF_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ inputs: prompt }),
-      }
-    );
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("❌ HuggingFace API error:", errText);
-      return null;
+    // Check if message starts with "generate "
+    if (message.content.toLowerCase().startsWith('generate ')) {
+        // Extract the prompt dynamically
+        const prompt = message.content.slice(9).trim(); // remove 'generate '
+
+        if (!prompt) return message.reply('Please provide something to generate!');
+
+        // Send initial "Generating" embed
+        const generatingEmbed = new EmbedBuilder()
+            .setColor('Yellow')
+            .setTitle(`Generating image of '${prompt}'`)
+            .setDescription("It will take 10-15 seconds...")
+            .setFooter({ text: "If it has any issues, create a ticket." });
+
+        const sentMessage = await message.channel.send({ embeds: [generatingEmbed] });
+
+        try {
+            // Generate image dynamically using OpenAI
+            const response = await openai.createImage({
+                prompt: prompt,
+                n: 1,
+                size: '512x512'
+            });
+
+            const imageUrl = response.data.data[0].url;
+
+            // Edit embed with the image
+            const finishedEmbed = new EmbedBuilder()
+                .setColor('Green')
+                .setTitle(`Here is your image of '${prompt}'!`)
+                .setImage(imageUrl)
+                .setFooter({ text: "If it has any issues, create a ticket." });
+
+            await sentMessage.edit({ embeds: [finishedEmbed] });
+
+        } catch (error) {
+            console.error(error);
+            sentMessage.edit({
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor('Red')
+                        .setTitle('Failed to generate image.')
+                        .setDescription('Please try again later.')
+                        .setFooter({ text: "If it has any issues, create a ticket." })
+                ]
+            });
+        }
     }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    return buffer;
-  } catch (err) {
-    console.error("⚠️ Fetch failed:", err);
-    return null;
-  }
-}
-
-// --- DISCORD EVENTS ---
-client.once("ready", () => {
-  console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
-client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-
-  // Match messages like: "generate a cat with hat"
-  if (!message.content.toLowerCase().startsWith("generate")) return;
-
-  const prompt = message.content.slice(8).trim(); // remove "generate"
-  if (!prompt) {
-    return message.reply("⚠️ Please describe what to generate. Example: `Generate a cat with hat`");
-  }
-
-  // Send temporary "Thinking..." embed
-  const embed = new EmbedBuilder()
-    .setTitle("🎨 Generating Image...")
-    .setDescription(`Prompt: \`${prompt}\`\nThis may take 10–15 seconds ⏳`)
-    .setColor("Yellow");
-
-  const thinkingMsg = await message.channel.send({ embeds: [embed] });
-
-  // Generate the image
-  const imageBuffer = await generateImage(prompt);
-
-  if (!imageBuffer) {
-    return thinkingMsg.edit({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle("❌ Failed to generate image")
-          .setDescription("Hugging Face API returned an error. Try again later.")
-          .setColor("Red"),
-      ],
-    });
-  }
-
-  try {
-    const attachment = new AttachmentBuilder(imageBuffer, { name: "result.png" });
-
-    await thinkingMsg.edit({
-      content: `✨ <@${message.author.id}> here is your image for: **${prompt}**`,
-      embeds: [],
-      files: [attachment],
-    });
-  } catch (err) {
-    console.error("⚠️ Failed to send image:", err);
-    await thinkingMsg.edit({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle("⚠️ Image Error")
-          .setDescription("Image generated but failed to send. Check logs.")
-          .setColor("Orange"),
-      ],
-    });
-  }
-});
-
-// --- EXPRESS WEB SERVER (for Render health check / UptimeRobot) ---
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get("/", (req, res) => {
-  res.send("✅ QuinxX Bot is running!");
-});
-
-app.listen(PORT, () => {
-  console.log(`🌐 Web server running on port ${PORT}`);
-});
-
-// --- LOGIN ---
-client.login(DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN);
