@@ -26,7 +26,7 @@ client.once("ready", () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
 });
 
-// ==== Image Generation ====
+// ==== Image Generation with Hugging Face ====
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
@@ -39,30 +39,26 @@ client.on("messageCreate", async (message) => {
     try {
       await message.channel.send(`🎨 Generating: **${prompt}** ...`);
 
-      const response = await fetch(`https://lexica.art/api/v1/search?q=${encodeURIComponent(prompt)}`);
+      const response = await fetch(
+        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.HF_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ inputs: prompt }),
+        }
+      );
 
       if (!response.ok) {
-        console.error(`Lexica API failed: ${response.status} ${response.statusText}`);
-        return message.reply("⚠️ Image service failed. Try again later.");
+        console.error("Hugging Face API error:", response.status, response.statusText);
+        return message.reply("⚠️ Hugging Face API failed. Try again later.");
       }
 
-      const data = await response.json();
+      const buffer = Buffer.from(await response.arrayBuffer());
 
-      if (!data.images || data.images.length === 0) {
-        return message.reply("⚠️ No images found. Try a different prompt.");
-      }
-
-      const imageUrl = data.images[0].src;
-
-      // fetch image as buffer
-      const imgResponse = await fetch(imageUrl);
-      if (!imgResponse.ok) {
-        console.error(`Failed to download image: ${imgResponse.status} ${imgResponse.statusText}`);
-        return message.reply("⚠️ Could not download the image. Try again.");
-      }
-
-      const buffer = Buffer.from(await imgResponse.arrayBuffer());
-
+      // attach the image
       const attachment = new AttachmentBuilder(buffer, { name: "generated.png" });
       await message.channel.send({
         content: `🖼️ Here’s your image for: **${prompt}**`,
