@@ -1,5 +1,5 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const { Configuration, OpenAIApi } = require('openai');
+const OpenAI = require('openai'); // ✅ Correct CommonJS import
 require('dotenv').config();
 const express = require('express');
 
@@ -12,9 +12,10 @@ app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-const openai = new OpenAIApi(new Configuration({
+// ✅ Correct OpenAI initialization
+const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
-}));
+});
 
 client.once('ready', () => console.log(`Logged in as ${client.user.tag}`));
 
@@ -40,14 +41,14 @@ client.on('messageCreate', async (message) => {
     try {
         const sentMessage = await message.channel.send({ embeds: [generatingEmbed] });
 
-        // Generate image from OpenAI
-        const response = await openai.createImage({
+        // ✅ Generate image from OpenAI
+        const response = await openai.images.generate({
+            model: "gpt-image-1",
             prompt,
-            n: 1,
-            size: '512x512'
+            size: "512x512"
         });
 
-        const imageUrl = response.data.data[0].url;
+        const imageUrl = response.data[0].url;
 
         // Finished embed
         const finishedEmbed = new EmbedBuilder()
@@ -60,13 +61,13 @@ client.on('messageCreate', async (message) => {
 
     } catch (error) {
         console.error(error);
+
         const errorEmbed = new EmbedBuilder()
             .setColor('Red')
             .setTitle('Failed to generate image.')
             .setDescription('Please try again later.')
             .setFooter({ text: "If it has any issues, create a ticket." });
 
-        // Try to edit the original message if possible
         message.channel.send({ embeds: [errorEmbed] });
     }
 });
