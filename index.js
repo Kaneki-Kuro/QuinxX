@@ -1,5 +1,5 @@
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const OpenAI = require('openai'); // ✅ Correct CommonJS import
+const OpenAI = require('openai'); // CommonJS import
 require('dotenv').config();
 const express = require('express');
 
@@ -10,7 +10,13 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 // ===============================================
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
+});
 
 // ✅ Correct OpenAI initialization
 const openai = new OpenAI({
@@ -34,6 +40,45 @@ client.on('messageCreate', async (message) => {
     // Initial "Generating" embed
     const generatingEmbed = new EmbedBuilder()
         .setColor('Yellow')
+        .setTitle(`Generating image of '${prompt}'`)
+        .setDescription("It will take 10-15 seconds...")
+        .setFooter({ text: "If it has any issues, create a ticket." });
+
+    try {
+        const sentMessage = await message.channel.send({ embeds: [generatingEmbed] });
+
+        // ✅ Generate image from OpenAI
+        const response = await openai.images.generate({
+            model: "gpt-image-1",
+            prompt,
+            size: "1024x1024" // ✅ fixed size
+        });
+
+        const imageUrl = response.data[0].url;
+
+        // Finished embed
+        const finishedEmbed = new EmbedBuilder()
+            .setColor('Green')
+            .setTitle(`Here is your image of '${prompt}'!`)
+            .setImage(imageUrl)
+            .setFooter({ text: "If it has any issues, create a ticket." });
+
+        await sentMessage.edit({ embeds: [finishedEmbed] });
+
+    } catch (error) {
+        console.error(error);
+
+        const errorEmbed = new EmbedBuilder()
+            .setColor('Red')
+            .setTitle('Failed to generate image.')
+            .setDescription('Please try again later.')
+            .setFooter({ text: "If it has any issues, create a ticket." });
+
+        message.channel.send({ embeds: [errorEmbed] });
+    }
+});
+
+client.login(process.env.DISCORD_TOKEN);
         .setTitle(`Generating image of '${prompt}'`)
         .setDescription("It will take 10-15 seconds...")
         .setFooter({ text: "If it has any issues, create a ticket." });
